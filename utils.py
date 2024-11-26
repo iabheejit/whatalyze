@@ -7,25 +7,35 @@ from collections import Counter
 import emoji
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
-import os
 
 # Function to parse chat messages
 @st.cache_data
-
 def parse_chat(text):
-    pattern = r'\[?(\d{1,2}/\d{1,2}/\d{2,4}),?\s*(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AaPp][Mm])?)\]?\s*-\s*([^:]+):\s*(.*)'
-
+    patterns = [
+        r'\[(\d{1,2}/\d{1,2}/\d{2,4}),\s*(\d{1,2}:\d{2}:\d{2})\]\s+(.+?):\s+(.*)',  # [dd/mm/yy, HH:MM:SS]
+        r'(\d{1,2}/\d{1,2}/\d{2,4}),\s*(\d{1,2}:\d{2}\s*[APap][Mm])\s*-\s*(.+?):\s*(.*)'  # dd/mm/yy, HH:MM AM/PM -
+    ]
     messages = []
+    current_message = None
     unmatched_lines = 0
 
     for line in text.split('\n'):
+        line = line.strip()
         if not line:
             continue
-        match = re.match(pattern, line)
+
+        match = None
+        for pattern in patterns:
+            match = re.match(pattern, line)
+            if match:
+                break  # Stop at the first match
+
         if match:
+            # Extract components for matched lines
             date, time, sender, message = match.groups()
 
             try:
+                # Normalize two-digit years
                 if len(date.split('/')[-1]) == 2:
                     date = date.replace(date.split('/')[-1], '20' + date.split('/')[-1])
 
@@ -39,6 +49,7 @@ def parse_chat(text):
                     '%m/%d/%Y %I:%M %p'
                 ]
 
+                dt = None
                 for fmt in date_formats:
                     try:
                         dt = datetime.strptime(datetime_str, fmt)
@@ -46,25 +57,48 @@ def parse_chat(text):
                     except ValueError:
                         continue
 
-                messages.append({
-                    'datetime': dt,
-                    'date': dt.date(),
-                    'time': dt.time(),
-                    'sender': sender.strip(),
-                    'message': message.strip()
-                })
+                if dt:
+                    if current_message:
+                        # Append the current message to the list if a new message starts
+                        messages.append(current_message)
+                    current_message = {
+                        'datetime': dt,
+                        'date': dt.date(),
+                        'time': dt.time(),
+                        'sender': sender.strip(),
+                        'message': message.strip()
+                    }
             except Exception as e:
                 unmatched_lines += 1
                 print(f"Error processing line: {line}. Error: {e}")
-                continue
+        elif current_message:
+            # Continuation of previous message
+            current_message['message'] += '\n' + line.strip()
+        else:
+            # Handle unmatched lines (e.g., media omitted)
+            unmatched_lines += 1
+            print(f"Unmatched line: {line}")
 
+    # Append the last message if exists
+    if current_message:
+        messages.append(current_message)
+
+    # Create DataFrame
     df = pd.DataFrame(messages)
-    if 'datetime' in df.columns:
+
+    if 'sender' not in df.columns:
+        print("Warning: 'sender' column is missing.")
+        print(df.head())  # Show the first few rows of the dataframe for debugging
+
+    if 'datetime' in df.columns and not df['datetime'].isnull().all():
         df = df.sort_values(by='datetime').reset_index(drop=True)
     else:
-        print("Datetime column is missing.")
-    
-    return df, unmatched_lines
+        print("Datetime column is missing or contains only null values.")
+
+    # Calculate distribution by sender
+    sender_distribution = df['sender'].value_counts() if 'sender' in df.columns else pd.Series()
+
+    return df, unmatched_lines, sender_distribution
 
 # Function to filter chat messages based on sender and date range
 @st.cache_data
@@ -131,54 +165,54 @@ def plot_emoji_analysis(analysis):
     fig_emojis = px.bar(x=emoji_labels, y=emoji_counts, title="Most Used Emojis")
     st.plotly_chart(fig_emojis)
 
-# Plot activity by hour
+# Optimized plotting function for the sender distribution
+def plot_messages_by_sender(analysis):
+    st.header("Message Distribution by Sender")
+    total_messages = analysis['total_messages']
+    sender_data = analysis['messages_by_sender']
+
+    # Calculate the percentage of total messages for each sender
+    sender_percent = (sender_data / total_messages) * 100
+
+    # Group senders with less than 2% into an 'Others' category
+    threshold = 1  # Percentage threshold
+    small_senders = sender_data[sender_percent < threshold]
+    others_count = small_senders.sum()
+
+    # Keep only senders above the threshold and add the 'Others' group
+    filtered_senders = sender_data[sender_percent >= threshold]
+    if others_count > 0:
+        filtered_senders['Others'] = others_count
+
+    # Create a pie chart with a color scale
+    fig = px.pie(
+        names=filtered_senders.index, 
+        values=filtered_senders.values,
+        color=filtered_senders.index,  # Use sender index as color grouping
+        color_discrete_sequence=px.colors.qualitative.Set3  # A set of distinct colors
+    )
+
+    st.plotly_chart(fig)
+
+# Optimized plotting functions for activities
 def plot_activity_by_hour(analysis):
     st.header("Activity by Hour")
-    fig_hour = px.bar(x=analysis['messages_by_hour'].index,
+    fig_hour = px.bar(x=analysis['messages_by_hour'].index, 
                       y=analysis['messages_by_hour'].values,
                       title="Messages by Hour of Day")
     st.plotly_chart(fig_hour)
 
-# Plot activity by weekday
 def plot_activity_by_weekday(analysis):
     st.header("Activity by Weekday")
     weekday_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     weekday_counts = analysis['messages_by_weekday'].reindex(weekday_order)
-    fig_weekday = px.bar(x=weekday_counts.index,
+    fig_weekday = px.bar(x=weekday_counts.index, 
                          y=weekday_counts.values,
                          title="Messages by Day of Week")
     st.plotly_chart(fig_weekday)
 
-# Plot messages by sender
-def plot_messages_by_sender(analysis):
-    st.header("Message Distribution by Sender")
-    # Filter out senders with less than 2% of total messages
-    total_messages = analysis['total_messages']
-    sender_data = analysis['messages_by_sender']
-    
-    # Calculate the percentage of total messages for each sender
-    sender_percent = (sender_data / total_messages) * 100
-    
-    # Filter to include only senders with at least 2% of total messages
-    filtered_senders = sender_data[sender_percent >= 2]
-
-    # Create a pie chart with the filtered senders
-    fig = px.pie(
-        names=filtered_senders.index,
-        values=filtered_senders.values,
-    )
-    st.plotly_chart(fig)
-
-# Plot messages timeline
-def plot_messages_timeline(analysis):
-    st.header("Messages Timeline")
-    fig_timeline = px.line(x=analysis['messages_by_date'].index,
-                           y=analysis['messages_by_date'].values,
-                           title="Messages per Day")
-    st.plotly_chart(fig_timeline)
-
-# Display analysis
-def display_analysis(filtered_df, analysis):
+# Main display function
+def display_analysis(df, analysis):
     # Display basic stats
     st.header("Chat Overview")
     col1, col2, col3 = st.columns(3)
@@ -191,24 +225,30 @@ def display_analysis(filtered_df, analysis):
 
     # Plot charts
     plot_messages_by_sender(analysis)
-    plot_messages_timeline(analysis)
     plot_activity_by_hour(analysis)
     plot_activity_by_weekday(analysis)
-    plot_emoji_analysis(analysis)
 
     # Word Cloud
     st.header("Word Cloud")
-    wordcloud = create_wordcloud(filtered_df)  # Pass filtered_df here
+    wordcloud = WordCloud(width=800, height=400, background_color='white').generate(" ".join(df['message']))
     fig, ax = plt.subplots()
     ax.imshow(wordcloud, interpolation='bilinear')
     ax.axis('off')
     st.pyplot(fig)
+    
+# Plot messages timeline
+def plot_messages_timeline(analysis):
+    st.header("Messages Timeline")
+    fig_timeline = px.line(x=analysis['messages_by_date'].index,
+                           y=analysis['messages_by_date'].values,
+                           title="Messages per Day")
+    st.plotly_chart(fig_timeline)
 
 # Function to cache data
 def load_and_cache_data(uploaded_file):
     if 'df' not in st.session_state:
         text = uploaded_file.getvalue().decode('utf-8')
-        df, unmatched_lines = parse_chat(text)
+        df, unmatched_lines, sender_distribution = parse_chat(text)
         st.session_state.df = df
         st.session_state.unmatched_lines = unmatched_lines
     return st.session_state.df
