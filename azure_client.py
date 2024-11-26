@@ -65,7 +65,7 @@ def generate_ai_insights(df):
         return f"Error generating AI insights: {str(e)}"
 
 # NEW: AI Chatbot function for conversational analysis
-def ai_chat_analysis(filtered_df, user_query):
+def ai_chat_analysis(df, user_query):
     """
     Generate conversational responses about the chat data
     """
