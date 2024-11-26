@@ -18,7 +18,7 @@ def main():
     st.markdown("""
         <div style="width: 100%; height: 250px; display: flex; justify-content: center; align-items: center; border: 5px solid #000; box-sizing: border-box;">
             <div style="width: 100%; height: 100%; display: flex; justify-content: center; align-items: center;">
-                <img src="https://github.com/iabheejit/whatalyze/blob/main/header.jpg" alt="Header Image" style="max-width: 100%; max-height: 100%; object-fit: contain;"/>
+                <img src="https://github.com/iabheejit/whatalyze/blob/main/header.jpg?raw=true" alt="Header Image" style="max-width: 100%; max-height: 100%; object-fit: contain;"/>
             </div>
         </div>
     """, unsafe_allow_html=True)
