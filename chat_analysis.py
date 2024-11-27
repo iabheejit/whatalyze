@@ -7,8 +7,12 @@ from wordcloud import WordCloud
 
 # Function to parse chat messages
 def parse_chat(text):
-    pattern = r'\[?(\d{1,2}/\d{1,2}/\d{2,4}),?\s*(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AaPp][Mm])?)\]?\s*-\s*([^:]+):\s*(.*)'
-
+    patterns = [
+        r'(\d{1,2}/\d{1,2}/\d{2,4}),\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*(?:AM|PM)?\s*-\s*([^:]+):\s*(.*)',
+        r'(\d{1,2}/\d{1,2}/\d{2,4}),\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*([^:]+):\s*(.*)',
+        r'\[(\d{1,2}/\d{1,2}/\d{2,4}),\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*(?:AM|PM)?\]\s*([^:]+):\s*(.*)',
+        r'\[(\d{1,2}/\d{1,2}/\d{2,4}),\s*(\d{1,2}:\d{2}(?::\d{2})?)\]\s*([^:]+):\s*(.*)'
+    ]
     messages = []
     unmatched_lines = 0
 
@@ -25,12 +29,14 @@ def parse_chat(text):
                 
                 datetime_str = f"{date} {time}"
                 date_formats = [
+                    '%d/%m/%Y %I:%M:%S %p',
+                    '%d/%m/%Y %I:%M %p',
                     '%d/%m/%Y %H:%M:%S',
                     '%d/%m/%Y %H:%M',
-                    '%d/%m/%Y %I:%M %p',
+                    '%m/%d/%Y %I:%M:%S %p',
+                    '%m/%d/%Y %I:%M %p',
                     '%m/%d/%Y %H:%M:%S',
-                    '%m/%d/%Y %H:%M',
-                    '%m/%d/%Y %I:%M %p'
+                    '%m/%d/%Y %H:%M'
                 ]
 
                 for fmt in date_formats:
